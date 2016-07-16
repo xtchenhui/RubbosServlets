@@ -4,6 +4,7 @@ public interface RubbosPoolMBean{
 
          int getPool();
 	 boolean changeDBpool(int newsize) throws Exception;
+	 	void renewPool();
 }
 
 
