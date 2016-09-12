@@ -74,11 +74,17 @@ public class RubbosPool implements RubbosPoolMBean {
 																			// static
 	private static Object DBconnLOCK = new Object(); // locking object shared by
 														// all servlets
+	private static int count = 0;
 	private static Vector<InputStream> inStreams = new Vector<InputStream>();
 	private static Vector<Properties> dbProperties = new Vector<Properties>();
 	// only the first position in the vector is the master DB
 	private static int readWriteIndex = 0;
 	static PrintStream buddy = null;
+	public static String[] datasourceURL = {"jdbc:mysql://192.168.10.162:3313/rubbos",
+			"jdbc:mysql://192.168.10.163:3313/rubbos",
+			"jdbc:mysql://192.168.10.168:3313/rubbos"};
+	
+	
 	static {
 		try {
 			buddy = new PrintStream(new FileOutputStream("/tmp/connpool.log"));
@@ -156,19 +162,64 @@ public class RubbosPool implements RubbosPoolMBean {
 
 		// This implementation must be changed once the databases are
 		// modularized away
+		createConnections(0,poolSize);
+	}
+	
+	
+	public static void createConnections(int index, int size) throws SQLException{
 		if (enablePooling) {
 			Connection tempConn = null;
 			Properties tempProp = null;
-			for (int j = 0; j < Config.DatabasePropertiesSize; j++) {
-				tempProp = ((Properties) dbProperties.elementAt(j));
-				for (int i = 0; i < poolSize; i++) {
-					// Get connections to the database
-					tempConn = DriverManager.getConnection(tempProp.getProperty("datasource.url"),
-							tempProp.getProperty("datasource.username"), tempProp.getProperty("datasource.password"));
 
-					connectionLookup.put(tempConn, new Integer(0));
-					((Stack) (databaseConnections.elementAt(0))).push(tempConn);
+			tempProp = ((Properties) dbProperties.elementAt(0));
+			for (int i = 0; i < size; i++) {
+				// Get connections to the database
+				tempConn = DriverManager.getConnection(datasourceURL[index],
+						tempProp.getProperty("datasource.username"), tempProp.getProperty("datasource.password"));
+
+				connectionLookup.put(tempConn, new Integer(index));
+				((Stack) (databaseConnections.elementAt(index))).push(tempConn);
+			}			
+		}		
+	}
+	
+	public static void closeConnections(int index, int size) throws SQLException{
+		final int NumAttempts = 3;
+		Stack tempStack = null;
+		if (enablePooling) {
+			for (int i = 0; i < NumAttempts; i++) {
+				tempStack = ((Stack) (databaseConnections.elementAt(index)));
+				if (!tempStack.isEmpty()) {
+					break;
 				}
+			}
+			try {
+				// Wait for a connection to be available
+				if (tempStack == null)
+					return;
+				
+				while (tempStack.isEmpty()) {
+					try {
+						synchronized (DBconnLOCK) {
+							DBconnLOCK.wait();
+						}
+					} catch (InterruptedException e) {
+						System.out.println("Connection pool wait interrupted.");
+					}
+				}
+				
+				for(int i = 0; i < size && !tempStack.isEmpty(); i++){
+					Connection c = (Connection) tempStack.pop();
+					if (!c.isClosed()) {
+						closeConnection(c);
+					}					
+				}
+			}
+
+			catch (EmptyStackException e) {
+				System.out.println("Out of connections.");
+			} catch (SQLException e) {
+				System.out.println("connection is already closed");
 			}
 		}
 	}
@@ -180,93 +231,75 @@ public class RubbosPool implements RubbosPoolMBean {
 		return poolSize;
 	}
 
-	public void renewPool() {
-		Connection tempConn = null;
-		Properties tempProp = ((Properties) dbProperties.elementAt(0));
-		Connection c = null;
-		Stack newstack = new Stack();
-		if (databaseConnections.size() == 0)
-			return;
-
-		Stack tempstack = (Stack) databaseConnections.elementAt(0);
-		int count = 0;
-
-		synchronized (DBconnLOCK) {
-			try {
-				while (!tempstack.isEmpty() && count < poolSize / 2) {
-					c = (Connection) tempstack.pop();
-					if (!c.isClosed())
-						c.close();
-					tempConn = DriverManager.getConnection(tempProp.getProperty("datasource.url"),
-							tempProp.getProperty("datasource.username"), tempProp.getProperty("datasource.password"));
-					newstack.push(tempConn);
-					count++;
-				}
-			} catch (SQLException e) {
-				e.printStackTrace();
+	 public boolean addMysql(int index){
+		 int size = 0;
+		 int diff = 0;
+		 try{
+			 for(int i = 0; i < index ; i++){
+				 size = databaseConnections.elementAt(i).size();
+				 closeConnections(i,size - poolSize/(index + 1));
+				 diff += size - poolSize/(index + 1);
+			 }
+			 createConnections(index,diff);
+		 }catch(Exception e){
+			 e.printStackTrace();
+		 }
+		 return true;
+	 }
+	 
+	 public boolean rmMysql(int index){
+		 int size = databaseConnections.elementAt(index).size();
+		 try {
+			closeConnections(index,size);
+			for(int i = 0; i <= index - 1; i++){
+				createConnections(i,size/(index-1));
 			}
-		}
-
-		while (count < poolSize / 2) {
-			try {
-				c = getRConnection("renew");
-				if (!c.isClosed())
-					c.close();
-				tempConn = DriverManager.getConnection(tempProp.getProperty("datasource.url"),
-						tempProp.getProperty("datasource.username"), tempProp.getProperty("datasource.password"));
-				newstack.push(tempConn);
-				count++;
-			} catch (SQLException e) {
-				e.printStackTrace();
+			for(int i = 0; i < size%(index - 1); i++){
+				createConnections(i,1);
 			}
+		} catch (SQLException e) {
+			e.printStackTrace();
 		}
-		synchronized (DBconnLOCK){
-			tempstack.addAll(newstack);
-		}		
-	}
-
-	public boolean changeDBpool(int newSize) throws Exception {
-		int change = newSize - poolSize;
-		Connection tempConn = null;
-		Properties tempProp = null;
-		Connection c = null;
-		if (databaseConnections.size() == 0)
-			return false;
-		synchronized (DBconnLOCK) {
-			// reduce connections
-			if (change < 0) {
-				for (int i = 0; i < Config.DatabasePropertiesSize; i++) {
-					int k = 0;
-					long startime = System.currentTimeMillis();
-					while (k < (-1 * change)) {
-						long curtime = System.currentTimeMillis();
-						if (!((Stack) (databaseConnections.elementAt(i))).isEmpty()) {
-							c = (Connection) ((Stack) (databaseConnections.elementAt(i))).pop();
-							c.close();
-							k++;
-						} else {
-							if ((curtime - startime) > 180000)
-								return false;
-						}
-					}
-				}
-			} else {
-				// increase connections
-				for (int j = 0; j < Config.DatabasePropertiesSize; j++) {
-					tempProp = ((Properties) dbProperties.elementAt(j));
-					for (int i = 0; i < change; i++) {
-						// Get connections to the stack
-						tempConn = DriverManager.getConnection(tempProp.getProperty("datasource.url"),
-								tempProp.getProperty("datasource.username"),
-								tempProp.getProperty("datasource.password"));
-
-						connectionLookup.put(tempConn, new Integer(0));
-						((Stack) (databaseConnections.elementAt(0))).push(tempConn);
-					}
-				}
-			}
-		}
-		poolSize = newSize;
+		 
+		 return true;
+	 }
+	 
+	 
+	 public boolean addTcat(int index){
+		 int targetsize = poolSize/(index + 1);
+		 int size = 0;
+		 try{
+			 for(int i = 0; i < index + 1; i++){
+				 size = databaseConnections.elementAt(i).size();
+				 if (size > targetsize){
+					 closeConnections(i,size - targetsize);
+				 }else{
+					 createConnections(i, targetsize - size);
+				 }
+			 }
+		 }catch(Exception e){
+			 e.printStackTrace();
+		 }
+		 return true;
+	 }
+	 
+	 
+	 
+	public boolean changeDBpool(int newSize, int index) throws Exception {
+		int targetsize = newSize/(index + 1);
+		int size = 0;
+		 try{
+			 for(int i = 0; i < index + 1; i++){
+				 size = databaseConnections.elementAt(i).size();
+				 if (size > targetsize){
+					 closeConnections(i,size - targetsize);
+				 }else{
+					 createConnections(i, targetsize - size);
+				 }
+			 }
+		 }catch(Exception e){
+			 e.printStackTrace();
+		 }		
 		return true;
 	}
 
@@ -335,6 +368,7 @@ public class RubbosPool implements RubbosPoolMBean {
 		long start = System.currentTimeMillis();
 		final int NumAttempts = 3;
 		Stack tempStack = null;
+		int index = 0;
 		if (enablePooling) {
 			for (int i = 0; i < NumAttempts; i++) {
 				// int randNum = generator.nextInt(
@@ -342,7 +376,11 @@ public class RubbosPool implements RubbosPoolMBean {
 				if (databaseConnections.size() == 0) {
 					continue;
 				}
-				tempStack = ((Stack) (databaseConnections.elementAt(0)));
+				synchronized(DBconnLOCK){
+					index = count % Config.DatabasePropertiesSize;
+					count++;
+				}
+				tempStack = ((Stack) (databaseConnections.elementAt(index)));
 
 				if (tempStack.isEmpty() == false) {
 					break;
@@ -369,7 +407,7 @@ public class RubbosPool implements RubbosPoolMBean {
 				}
 
 				long end = System.currentTimeMillis();
-				buddy.println(start + " " + end + " " + service + " " + (end - start) + " " + beginsize + " "
+				buddy.println(start + " " + end + " " + service + " " + (end - start) + " index:"+index+" " + beginsize + " "
 						+ tempStack.size());
 				return c;
 			}
@@ -397,7 +435,8 @@ public class RubbosPool implements RubbosPoolMBean {
 			// int databaseIndex =
 			// ((Integer)connectionLookup.get(c)).intValue();
 			boolean mustNotify = ((Stack) (databaseConnections.elementAt(0))).isEmpty();
-			((Stack) (databaseConnections.elementAt(0))).push(c);
+			int index = (Integer)connectionLookup.get(c);
+			((Stack) (databaseConnections.elementAt(index))).push(c);
 
 			// Wake up one servlet waiting for a connection (if any)
 			if (mustNotify) {
