@@ -27,7 +27,7 @@ public class RegisterMBeansListener implements ServletContextListener {
     	final MBeanServer server = ManagementFactory.getPlatformMBeanServer();
     	try {
     		objectName = new ObjectName("RubbosLSU:type=PoolMon");
-    		final RubbosPoolMBean mbean = new RubbosPool();
+    		final RubbosPoolMBean mbean = new RubbosPoolManager();
     		server.registerMBean(mbean, objectName);
     		System.out.println("MBean registered: " + objectName);
     	} catch (MalformedObjectNameException mone) {

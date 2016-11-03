@@ -3,10 +3,10 @@ package edu.rice.rubbos.servlets;
 public interface RubbosPoolMBean{
 
          int getPool();
-	 boolean changeDBpool(int newsize, int index) throws Exception;
-	 boolean addMysql(int index);
-	 boolean rmMysql(int index);
-	 boolean addTcat(int index);
+     boolean setPool(int pool);
+     boolean setTcat(int tcat,String mysqls);
+	 boolean addMysql(String host, int port);
+	 boolean rmMysql(String host);
 }
 
 

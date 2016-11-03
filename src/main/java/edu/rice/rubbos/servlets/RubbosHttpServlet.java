@@ -91,7 +91,7 @@ public abstract class RubbosHttpServlet extends HttpServlet
   public void init() throws ServletException
   {
 	try{
-	  RubbosPool.init();
+	  RubbosPoolManager.init();
   	}catch(Exception e){}
   }
  /**
@@ -100,7 +100,7 @@ public abstract class RubbosHttpServlet extends HttpServlet
   */
    private void closeConnection(Connection connection)
    {
-      RubbosPool.closeConnection(connection);
+      RubbosPoolManager.closeConnection(connection);
    }
 
 
@@ -113,7 +113,7 @@ public abstract class RubbosHttpServlet extends HttpServlet
    */
   public synchronized Connection getRWConnection()
   {
-	return RubbosPool.getRWConnection();
+	return RubbosPoolManager.getRWConnection();
   }
 
 
@@ -126,7 +126,7 @@ public abstract class RubbosHttpServlet extends HttpServlet
    */
   public  Connection getRConnection(String Service)
   {
-   return RubbosPool.getRConnection(Service);
+   return RubbosPoolManager.getRConnection(Service);
   }
 
   /**
@@ -136,7 +136,7 @@ public abstract class RubbosHttpServlet extends HttpServlet
    */
   public  void releaseRConnection(Connection c )
   {
-	RubbosPool.releaseRConnection(c);
+	RubbosPoolManager.releaseRConnection(c);
   }
 
 
@@ -147,7 +147,7 @@ public abstract class RubbosHttpServlet extends HttpServlet
    */
   public synchronized void releaseRWConnection(Connection c )
   {
-	RubbosPool.releaseRWConnection(c);
+	RubbosPoolManager.releaseRWConnection(c);
   }
 
   /**
@@ -157,7 +157,7 @@ public abstract class RubbosHttpServlet extends HttpServlet
    */
   public synchronized void finalizeConnections() throws SQLException
   {
-	RubbosPool.finalizeConnections();
+	RubbosPoolManager.finalizeConnections();
   }
 
   public void doGet(HttpServletRequest request, HttpServletResponse response)
@@ -177,7 +177,7 @@ public abstract class RubbosHttpServlet extends HttpServlet
    */
   public void destroy()
   {
-	RubbosPool.destroy();
+	RubbosPoolManager.destroy();
   }
 
 }

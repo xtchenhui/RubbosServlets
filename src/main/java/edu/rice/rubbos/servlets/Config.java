@@ -46,7 +46,7 @@ public class Config
 
   public static final String HTMLFilesPath                 = "/home/hchen/elba/rubbos/RUBBoS/Servlet_HTML";
   public static final String[] DatabaseProperties          = {"/home/hchen/elba/rubbos/RUBBoS/Servlets/mysql.properties"};
-  public static final int DatabasePropertiesSize = 3;
+  public static final int DatabasePropertiesSize = 1;
 
   public static final int    AboutMePoolSize               = 10;
   public static final int    BrowseCategoriesPoolSize      = 6;
